@@ -62,3 +62,10 @@ wheels/
 *.egg
 
 /tests/test_JavaExecution.py
+
+# Generated artifacts from the Paperevaluation that should be generated automatically
+PaperEvaluation/dataset_info.xlsx
+PaperEvaluation/dataset_mapping_dict.py
+PaperEvaluation/java/
+PaperEvaluation/runs
+PaperEvaluation/venv-*

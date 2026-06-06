@@ -5,13 +5,21 @@ from openai import OpenAI
 from cascade.utils.Utils import load_json_from_path, save_dicts_list_to_json
 
 
+def log(log_array, message):
+    #print(message)
+    log_array.append(message)
+
+
 def makeModelRequest(promptList, max_tokens=1200, temperature=0, freq_penalty=0.0):
     if "OPENAI_API_KEY" in os.environ:
         api_key = os.environ["OPENAI_API_KEY"]
+    elif base_url!="":
+        # If we use a third party model, we might not need an API key
+        api_key=""
     else:
         raise Exception("No api key in environment")
 
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, base_url=base_url)
     response = client.chat.completions.create(
         model=model,
         messages=promptList,
@@ -71,7 +79,8 @@ if __name__ == '__main__':
     and (4) is there an inconsistency between them
  """
 
-    model = "gpt-4.1-mini" # "gpt-4o-mini-2024-07-18"
+    model = "llm7"
+    base_url = "https://llm7-compute.cms.hu-berlin.de/v1"
 
     # read in analyze file
     print("start baseline")
@@ -81,13 +90,13 @@ if __name__ == '__main__':
     code = d["code"]
     doc = d["doc"]
 
-    log = []
+    log_array = []
     results = [None, None, None, None]
 
-    log.append("started Phase 1:\nFull code:")
+    log(log_array, "started Phase 1:\nFull code:")
     full_code = build_signature(d, doc=True) + code + "\n"
 
-    log.append(full_code)
+    log(log_array, full_code)
 
     try:
         # Phase 1 -----------------------------------------------------------------------------------------------
@@ -98,7 +107,7 @@ if __name__ == '__main__':
 
         answer = makeModelRequest(promptList)
 
-        log.append(f"question 1 - answer:\n{answer}")
+        log(log_array, f"question 1 - answer:\n{answer}")
 
         for word in answer.lower().split():
             if "yes" in word.strip():
@@ -110,13 +119,13 @@ if __name__ == '__main__':
                 break
 
         if results[0] is None:
-            log.append("could not parse answer correctly in phase 1")
+            log(log_array, "could not parse answer correctly in phase 1")
         else:
             print(results[0])
 
     except Exception as e:
         print("error1")
-        log.append(f"error in phase 1: {e}")
+        log(log_array, f"error in phase 1: {e}")
 
     try:
         # Phase 2 -----------------------------------------------------------------------------------------------
@@ -127,7 +136,7 @@ if __name__ == '__main__':
 
         answer = makeModelRequest(promptList)
 
-        log.append(f"question 2 - answer:\n{answer}")
+        log(log_array, f"question 2 - answer:\n{answer}")
 
         for word in answer.lower().split():
             if "yes" in word.strip():
@@ -139,19 +148,19 @@ if __name__ == '__main__':
                 break
 
         if results[1] is None:
-            log.append("could not parse answer correctly in phase 2")
+            log(log_array, "could not parse answer correctly in phase 2")
         else:
             print(results[1])
 
     except Exception as e:
         print("error2")
-        log.append(f"error in phase 2: {e}")
+        log(log_array, f"error in phase 2: {e}")
 
     try:
         # Phase 3 -----------------------------------------------------------------------------------------------
         full_code = build_context(d, doc=True) + code + "\n}\n"
 
-        log.append("started Phase 3:\nFull code:")
+        log(log_array, "started Phase 3:\nFull code:")
         promptList = []
         promptList.append({"role": "system",
                            "content": "You will get a snippet of a Java class. I want to know for a specific method if its code and documentation are consistent. Allways answer with Yes or No before you explain."})
@@ -159,7 +168,7 @@ if __name__ == '__main__':
                            "content": f"{full_code}\n\n\nAre code and documentation of {d['signature']['name']} consistent? The Documentation is {d['doc']}\n\n Answer with Yes or No?"})
 
         answer = makeModelRequest(promptList)
-        log.append(f"question 3 :\n{answer}")
+        log(log_array, f"question 3 :\n{answer}")
 
         for word in answer.lower().split():
             if "yes" in word.strip():
@@ -171,18 +180,18 @@ if __name__ == '__main__':
                 break
 
         if results[2] is None:
-            log.append("could not parse answer correctly in phase 3")
+            log(log_array, "could not parse answer correctly in phase 3")
         else:
             print(results[2])
 
     except Exception as e:
         print("error3")
-        log.append(f"error in phase 3: {e}")
+        log(log_array, f"error in phase 3: {e}")
 
     try:
         # Phase 4 -----------------------------------------------------------------------------------------------
-        log.append("started Phase 4:\nFull code:")
-        log.append(full_code)
+        log(log_array, "started Phase 4:\nFull code:")
+        log(log_array, full_code)
         promptList = []
         promptList.append({"role": "system",
                            "content": "You will get a snippet of a Java class. I want to know for a specific method if there is an inconsistency between the documentation and the code. Allways answer with Yes or No before you explain."})
@@ -190,7 +199,7 @@ if __name__ == '__main__':
                            "content": f"{full_code}\n\n\n Is there an inconsistency between code and documentation of {d['signature']['name']}? The Documentation is {d['doc']}\n\n Answer with Yes or No?"})
 
         answer = makeModelRequest(promptList)
-        log.append(f"question 4 - answer: \n{answer}")
+        log(log_array, f"question 4 - answer: \n{answer}")
 
         for word in answer.lower().split():
             if "yes" in word.strip():
@@ -202,13 +211,13 @@ if __name__ == '__main__':
                 break
 
         if results[3] is None:
-            log.append("could not parse answer correctly in phase 4")
+            log(log_array, "could not parse answer correctly in phase 4")
         else:
             print(results[3])
 
     except Exception as e:
         print("error4")
-        log.append(f"error in phase 4: {e}")
+        log(log_array, f"error in phase 4: {e}")
 
     # results output format is phase1 answer, phase2 answer, phase3 answer
     result_string = f"{results[0]}; {results[1]}; {results[2]}; {results[3]}"
@@ -216,4 +225,4 @@ if __name__ == '__main__':
         f.write(result_string)
 
     with open("log.txt", "w") as f:
-        f.write("\n".join(log))
+        f.write("\n".join(log_array))
