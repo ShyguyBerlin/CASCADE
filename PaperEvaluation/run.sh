@@ -8,7 +8,7 @@ WORKING_DIR=$(pwd)
 
 #DRIVERS_LIST=()
 #DRIVERS_LIST=("DocChecker" "Baseline" "C4RLLaMA")
-DRIVERS_LIST=("CASCADE")
+DRIVERS_LIST=("Baseline")
 
 #  alter the drivers list to run the specific drivers you want, if the list is empty, it will run all the drivers in the drivers folder
 
@@ -19,60 +19,59 @@ do
 (
 	echo "At repository: $repo ---------------------"
 	cd "$repo"
-	# clone this repo 
+	# clone this repo once; subsequent commits patch and revert it in place
 	git clone https://github.com/$repo ./repository
-	
+	export REPO_PATH="$(pwd)/repository"
+
 	for commit in *
 	do
-	
+
 		if [ $commit == "repository" ]
 		then continue
 		fi
 
 	(
 		echo "    At commit: $commit -------"
-		
-		# checkout specific commit
-		(cd repository; git checkout $commit)
+
+		# revert any leftover state from the previous commit and check out the new one
+		(cd repository; git reset --hard HEAD; git clean -fdx; git checkout $commit)
+
+		# apply patch directly to the cloned repo (no backup copy)
+		(cd repository; patch -p1 -f < "../$commit/file.patch")
+
 		cd "$commit"
-		cp -r "../repository" "./backup"
-		
-		#apply patch		
-		(cd "./backup"; patch -p1 -f < ../file.patch)
 
 		for num in *
 		do
-			if [[ $num == "backup" || $num == "file.patch" ]]
+			if [[ $num == "file.patch" ]]
 			then continue
 			fi
-		(	
+		(
 			echo "        At number: $num"
-			
+
 			cd $WORKING_DIR/drivers
 			if [ ${#DRIVERS_LIST[@]} -eq 0 ]; then
 				drivers_to_run=(*)
 		  	else
 				drivers_to_run=("${DRIVERS_LIST[@]}")
 			fi
-			
+
 			for driver in "${drivers_to_run[@]}";
 			do
 			(
 				echo "copy $driver"
-				
-				# copy required stuff and execute
+
+				# copy the driver folder and the analyzed.json; the repository is shared via $REPO_PATH
 				cp -r $driver "../java/$repo/$commit/$num/$driver"
-				cd "../java/$repo/$commit"
-				cp -r "./backup" "./$num/$driver/repository"
-				cd "./$num"
+				cd "../java/$repo/$commit/$num"
 				cp "./analyzed.json" "./$driver/analyzed.json"
 				cd "./$driver"
-				
+
 				bash driver.sh
 
 				mv "result.txt" "../result_$driver.txt"
 				mv "log.txt" "../log_$driver.txt"
-				mv "errors.txt" "../errors_$driver.txt"	
+				mv "errors.txt" "../errors_$driver.txt"
 
 				cp "analyzed.json" "../analyzed.json"
 				#  -----------
@@ -81,12 +80,11 @@ do
 				rm -rf $driver
 			)
 			done
-		)		
+		)
 		done
 		# echo Press to continue
-		# read  
-		rm -rf ./backup		
-	)				
+		# read
+	)
 	done
 	rm -rf ./repository
 )
