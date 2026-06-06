@@ -1,0 +1,32 @@
+{
+   "Extraction"    : { "name": "JavaExtraction",  "kwargs" : {}},
+	"CodeGenerator": { "name": "JavaCodeGenerator", "kwargs" : {
+         "model": "llm7",
+         "base_url": "https://llm7-compute.cms.hu-berlin.de/v1",
+         "api_key": "dummy"
+      }, "temperature":0},
+	"TestGenerator": { "name": "MultiStepJavaTestGenerator", "kwargs" : {
+         "model": "llm7",
+         "base_url": "https://llm7-compute.cms.hu-berlin.de/v1",
+         "api_key": "dummy",
+		 "temperature":0
+      }},
+    "DocGenerator": { "name": "SimplePromptDocGenerator", "kwargs" : {
+         "model": "llm7",
+         "base_url": "https://llm7-compute.cms.hu-berlin.de/v1",
+         "api_key": "dummy",
+		 "temperature":0
+      }},
+   "Analysis"      : { "name": "DocumentationBasedAnalysisWithResultFile",  "kwargs" : {"regenerate":true,"model":{
+         "model": "llm7",
+         "base_url": "https://llm7-compute.cms.hu-berlin.de/v1",
+         "api_key": "dummy",
+		 "temperature":0
+      }}},
+   "Executor"      : { "name": "MavenJavaExecutor",   "kwargs" : {}},
+   "FilterFunctions"  : [
+      { "name": "NoTestsFilterFunction", "kwargs" : {}},
+      { "name": "CheckLengthFilterFunction", "kwargs" : {"key":"code", "op":">", "val":0}},
+      { "name": "CheckLengthFilterFunction", "kwargs" : {"key":"doc", "op":">", "val":12}}
+   ]
+}

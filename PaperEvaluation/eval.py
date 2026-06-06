@@ -491,6 +491,27 @@ def eval_jdoctor(gt, pd):
     pass
 
 
+def eval_cascaddocgen(gt, pd):
+    """
+    Evaluate CASCADE-DocGen (documentation-only comparison) results.
+    Verdict format: "INCO; consistent/inconsistent/error ; ..."
+    INCO means documentation is inconsistent, NoInco means it's consistent.
+    """
+    results = {}
+    
+    # Extract the first two parts of the verdict
+    parts = [p.strip() for p in pd.split(";")]
+    inco_status = parts[0] if len(parts) > 0 else "NoInco"
+    
+    # Predict positive (inconsistency found) if "INCO" is in the status
+    if "INCO" in inco_status:
+        results["doc_comparison"] = "TP" if gt else "FP"
+    else:
+        results["doc_comparison"] = "FN" if gt else "TN"
+    
+    return results
+
+
 def evaluate_driver(driver, allowed_c_dirs=set()):
     """Returns dict counts[version] with TP/FP/FN/TN lists."""
     if driver == "CASCADE":
@@ -501,6 +522,8 @@ def evaluate_driver(driver, allowed_c_dirs=set()):
         eval = eval_docchecker
     elif driver == "C4RLLaMA":
         eval = eval_docchecker
+    elif driver == "CASCADE-DocGen":
+        eval = eval_cascaddocgen
     else:
         return
 
@@ -531,6 +554,7 @@ if __name__ == '__main__':
     from dataset_mapping_dict import mapping
 
     driver_abbreviations = {
+        "f": "CASCADE-DocGen",
         "c": "CASCADE",
         "b": "Baseline",
         "d": "DocChecker",
@@ -686,7 +710,7 @@ if __name__ == '__main__':
     for driver in drivers:
         # discover c dirs for this driver
         c_dirs = list_available_c_dirs(driver)
-        subsets = sample_c_dir_subsets(c_dirs, c_num, max_samples=1000, seed=seed)
+        subsets = sample_c_dir_subsets(c_dirs, c_num, max_samples=1, seed=seed)
 
         print(
             f"{driver} | available c-dirs: {len(c_dirs)} | using c={min(max(c_num, 0), len(c_dirs))} | sampled runs: {len(subsets)}")
