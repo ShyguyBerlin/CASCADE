@@ -13,11 +13,13 @@ def log(log_array, message):
 def makeModelRequest(promptList, max_tokens=1200, temperature=0, freq_penalty=0.0):
     if "OPENAI_API_KEY" in os.environ:
         api_key = os.environ["OPENAI_API_KEY"]
-    elif base_url!="":
+    
+    elif "OPENAI_BASE_URL" in os.environ:
         # If we use a third party model, we might not need an API key
         api_key=""
+        base_url = os.environ["OPENAI_BASE_URL"]
     else:
-        raise Exception("No api key in environment")
+        raise Exception("No api key and no base url in environment")
 
     client = OpenAI(api_key=api_key, base_url=base_url)
     response = client.chat.completions.create(
@@ -80,7 +82,6 @@ if __name__ == '__main__':
  """
 
     model = "llm7"
-    base_url = "https://llm7-compute.cms.hu-berlin.de/v1"
 
     # read in analyze file
     print("start baseline")

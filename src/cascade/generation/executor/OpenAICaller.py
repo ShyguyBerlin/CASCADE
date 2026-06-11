@@ -33,6 +33,8 @@ class OpenAICaller(LLMCaller):
             "timeout": timeout,
         }
 
+        base_url = os.environ.get("OPENAI_BASE_URL") or base_url
+
         if base_url is not None:
             # we expect this to be a vLLM OpenAI-compatible server
             client_kwargs["base_url"] = base_url
