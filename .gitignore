@@ -69,3 +69,6 @@ PaperEvaluation/dataset_mapping_dict.py
 PaperEvaluation/java/
 PaperEvaluation/runs
 PaperEvaluation/venv-*
+
+# Example folders to play around with, expect temporary local changes, so no versioning
+exampleTargetproject/

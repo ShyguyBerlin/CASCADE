@@ -40,14 +40,17 @@ class SimplePromptDocGenerator(Generator):
             {"role": "system",
              "content": "You are an expert Java developer and requirements engineer. "
              "You will be given a method signature and its code. "
-             "Your task is to create documentation for the method provided in a short, but comprehensive manner. "
+             "Your task is to create documentation for the method provided in a comprehensive manner. "
              "Only answer with the Docstring, that must begin with /** and end with */. "
              "Do not point out any differences between the signature and the code, use the code as the source of truth."
-             "Focus on the behavior of the method as observable from the code, not on implementation details. "
-             "It is especially important what kinds of inputs the method correctly recognizes and what effects the execution then has. "
-             "Method internal details must be omitted, unless they have a consequence on using it."},
+             "Focus on the behavior of the method as observable from the code, you might add quirks in the code. "
+             "Try to mimic what a human developer would write. They will most likely either create a mental model of the way the function works or just describe types of input and output. You may do both."},
             {"role": "user",
-             "content": f"Give a short documentation for the following Java method:\n```java\n{build_signature(context, doc=True)}{context.get("code","")}\n```\n\nMake sure you consider the behavior exactly as observable in the code and only include information relevant to a developer, so only what it achieves in the end, not necessarily how it comes to that result, but do not make any assumptions that cannot be derived from the code. The user does not need the technical details."}
+             "content": f"Give a short documentation for the following Java method:\n```java\n{build_signature(context, doc=True)}{context.get("code","")}\n```\n\n"
+             "Make sure you consider the behavior exactly as observable in the code and convey information in a way relevant to a developer,"
+             "do not make any assumptions that cannot be derived from the code."
+             "The user does not need the technical details, except if they are relevant."
+             "Write it like a tired developer."}
         ]
 
         chat_history.append(copy.deepcopy(prompt_step1))
