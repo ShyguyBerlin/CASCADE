@@ -13,6 +13,8 @@ from cascade.generation.Generation import Generation
 from cascade.utils.Utils import save_dicts_list_to_json, load_json_from_path
 from cascade.utils.JavaUtils import build_signature
 
+from cascade.diagnostics.PipelineTools import PipelineTools
+
 from cascade.utils.DockerizedWrapper import DockerizedWrapper
 import xml.etree.ElementTree as ET
 
@@ -20,6 +22,7 @@ class JavaTwoStepAnalysis(Analysis):
     def __init__(self,
                  generator: Generation,
                  executor: Execution,
+                 pipeline=None,
                  regenerate=False,
                  reexecute=False,
                  just_analyze=False,
@@ -29,6 +32,8 @@ class JavaTwoStepAnalysis(Analysis):
                  max_repair_tries=3
                  ):
         super().__init__(generator, executor)
+        self.pipeline: PipelineTools= pipeline
+        self.log=self.pipeline.log.set_key("JavaTwoStepAnalysis")
         self.reexecute = reexecute or regenerate
         self.step_size = step_size
         self.regenerate = regenerate
@@ -48,19 +53,20 @@ class JavaTwoStepAnalysis(Analysis):
         :param output_path: a path where the output should be written to.
         """
         def log(header, message):
-            with open(os.path.join(output_path, "log.txt"), "a") as f:
-                f.write(header + "\n")
-                f.write(message+ "\n")
+            self.log.log_debug(header,message)
+#            with open(os.path.join(output_path, "log.txt"), "a") as f:
+#                f.write(header + "\n")
+#                f.write(message+ "\n")
 
         def has_results(dct, results_key: str) -> bool:
             return "results" in dct and results_key in dct["results"] and dct["results"][results_key] not in (None, [], [[], [], []])
 
-
-        print(f"analyzing {len(data)} elements")
+        self.pipeline.time.start("Java Two-Step Analysis")
+        self.log.log_info(f"analyzing {len(data)} elements")
 
         if os.path.exists(os.path.join(output_path, "analyzed.json")):
             data = load_json_from_path(os.path.join(output_path, "analyzed.json"))
-            print(f"loaded existing analyzed data with {len(data)} elements")
+            self.log.log_info(f"loaded existing analyzed data with {len(data)} elements")
         else:
             # preparing/ finding out junit version etc.
             data = self.prepare_data(data, input_path, output_path)
@@ -69,7 +75,7 @@ class JavaTwoStepAnalysis(Analysis):
 
         if not self.just_analyze:
                 # set up the executor
-            print("setup executor mvn image")
+            self.log.log_info("setup executor mvn image")
             self.executor.set_up(data, input_path, output_path)
 
             time_start = datetime.now()
@@ -84,7 +90,7 @@ class JavaTwoStepAnalysis(Analysis):
                     time_avg = time_elapsed / (idx + 1)
                     time_remaining = time_avg * (len(data) - (idx + 1))
 
-                    print(
+                    self.log.log_info(
                         f"{time_now.strftime('%H:%M:%S')}  "
                         f"Analyzing method: {d['signature']['name']}. "
                         f"{idx+1}/{len(data)}  "
@@ -93,10 +99,11 @@ class JavaTwoStepAnalysis(Analysis):
                     )
 
 
-                    print("    Step 1 - New Tests")
+                    self.pipeline.time.start_phase("New Tests")
+                    self.log.log_info("    Step 1 - New Tests")
 
                     if not "new_tests" in d or self.regenerate:
-                        print("      generate new tests")
+                        self.log.log_info("      generate new tests")
                         new_tests, chat_history = self.generator.generate_tests(d, input_path, output_path)
 
                         d["new_tests"] = new_tests
@@ -108,9 +115,9 @@ class JavaTwoStepAnalysis(Analysis):
                             continue
 
                     else:
-                        print("      new tests already generated")
+                        self.log.log_info("      new tests already generated")
 
-                    print("      execute new tests")
+                    self.log.log_info("      execute new tests")
                     d["results"] = {}
                     d["results"]["(code, new_tests)"] = [[],[],[]]
 
@@ -137,7 +144,7 @@ class JavaTwoStepAnalysis(Analysis):
                         # repair step
                         # if there were actually compiler errors with the tests:
                         if evaluated == 0 and comp_errors:
-                            print("      Try to generate repaired tests")
+                            self.log.log_info("      Try to generate repaired tests")
                             repaired_tests, response_history = self.generator.repair_tests(d, input_path, output_path, comp_errors, 'new_tests')
                             d["repair_history"].append(response_history)
 
@@ -146,7 +153,7 @@ class JavaTwoStepAnalysis(Analysis):
                             d["new_tests"] = repaired_tests
 
 
-                            print("      execute repaired tests")
+                            self.log.log_info("      execute repaired tests")
 
                             d["new_tests"] = d["new_tests"].replace(test_class_real_name, test_class_unique_name)
                             d["test_file_path"] = d["test_file_path"].replace(test_class_real_name, test_class_unique_name)
@@ -193,17 +200,18 @@ class JavaTwoStepAnalysis(Analysis):
                     else:
                         #start next phase
                         # generate new code  -----------------------------------------------------------------------------------------------
-                        print("    Step 2 - New Code")
+                        self.pipeline.time.start_phase("New Code")
+                        self.log.log_info("    Step 2 - New Code")
                         if not "new_code" in d or self.regenerate:
                             d["results"]["(new_code, new_tests)"] = [[], [], []]
-                            print("      generate new code")
+                            self.log.log_info("      generate new code")
                             new_code, response = self.generator.generate_code(d, input_path, output_path)
 
                             d["new_code"] = new_code
                             d["new_code_response"] = response
 
 
-                        print("      execute new code (with new tests)")
+                        self.log.log_info("      execute new code (with new tests)")
                         d["new_tests"] = d["new_tests"].replace(test_class_real_name, test_class_unique_name)
                         d["test_file_path"] = d["test_file_path"].replace(test_class_real_name, test_class_unique_name)
                         exec_results: ExecutionResults = self.executor.execute("new_code", "new_tests", d, input_path, output_path)
@@ -278,7 +286,7 @@ class JavaTwoStepAnalysis(Analysis):
                             d["verdict"] += f" {str(amount_res)}; {str(amount_res2)}; {metric_lengths}"
 
                     # end:  if next phase --------------------------------------
-                    print(d["verdict"])
+                    self.log.log_info(d["verdict"])
 
                 # end:  try
                 except Exception as e:
@@ -313,7 +321,7 @@ class JavaTwoStepAnalysis(Analysis):
 
             time_end = datetime.now()
             time_total = str(datetime.now() - time_start).split('.')[0]
-            print(f"Finished analysis in {time_total}")
+            self.log.log_info(f"Finished analysis in {time_total}")
 
             self.executor.tear_down(data)
             #save final results
@@ -385,9 +393,9 @@ class JavaTwoStepAnalysis(Analysis):
                     continue
                 r = parse_verdict(d["verdict"])
             else :
-                print(d["signature"]["name"] , "\t", "No verdict")
+                self.log.log_info(d["signature"]["name"] , "\t", "No verdict")
                 continue
-            print(d["signature"]["name"] , "\t", d["verdict"])
+            self.log.log_info(d["signature"]["name"] , "\t", d["verdict"])
 
             # help function.
             if "repairsteps" not in d:
@@ -450,36 +458,37 @@ class JavaTwoStepAnalysis(Analysis):
                         general_stats["likely_incos"] += 1
                         likely_incos.append(d)
 
-        print("incos:" , len(incos))
-        print("likely incos:", len(likely_incos))
+        self.log.log_info("incos:" , len(incos))
+        self.log.log_info("likely incos:", len(likely_incos))
 
         for key, value in general_stats.items():
-            print(f"{key}: {value}")
+            self.log.log_info(f"{key}: {value}")
         for key, value in repair_stats.items():
-            print(f"{key}: {value}")
+            self.log.log_info(f"{key}: {value}")
 
-        print("Incos:")
+        self.log.log_info("Incos:")
         for d in incos:
-            print("--------------------------------------------------------")
-            print(d["signature"]["name"])
+            self.log.log_info("--------------------------------------------------------")
+            self.log.log_info(d["signature"]["name"])
             f2p_cases = ", ".join(d["metric"]["f2p"])
-            print("f2p testcases: " , f2p_cases)
+            self.log.log_info("f2p testcases: " , f2p_cases)
 
-            print( build_signature(d, doc=True) )
-            print(d["code"])
+            self.log.log_info( build_signature(d, doc=True) )
+            self.log.log_info(d["code"])
+        self.pipeline.time.stop("Java Two-Step Analysis")
 
 
     def evaluate(self, res):
         if res[0] == [] and res[1] == [] and res[2] == []:
-            print("        Error")
+            self.log.log_info("        Error")
             # error
             return 0
         elif res[1] == [] and res[2] == []:
-            print("        Passed")
+            self.log.log_info("        Passed")
             # if no errors or failures  then passed
             return 1
         else:
-            print("        Failed")
+            self.log.log_info("        Failed")
             return -1
 
 
@@ -498,8 +507,8 @@ class JavaTwoStepAnalysis(Analysis):
                 try:
                     shutil.copytree(input_path, temp_dir, dirs_exist_ok=True)
                 except Exception as e:
-                    print("could not copy root path")
-                    print(e)
+                    self.log.log_info("could not copy root path")
+                    self.log.log_info(e)
                     return None
                 dock_ex = DockerizedWrapper()
 
@@ -571,17 +580,17 @@ class JavaTwoStepAnalysis(Analysis):
 
         junit_version, source_dir, test_source_dir = None, None, None
         if  "junit_version" not in data[0] or "test_file_path" not in data[0]:
-            print("extracting Junit version")
+            self.log.log_info("extracting Junit version")
             junit_version, source_dir, test_source_dir = extract_maven_information()
             if junit_version is None:
-                print("could not extract junit version from maven project. Falling back to Junit 5.0\n")
+                self.log.log_info("could not extract junit version from maven project. Falling back to Junit 5.0\n")
                 junit_version = "5.0"
-            print(f"Used Junit Version: {junit_version}")
+            self.log.log_info(f"Used Junit Version: {junit_version}")
 
         else :
             junit_version = data[0]["junit_version"]
 
-        print("prepare data")
+        self.log.log_info("prepare data")
         for d in tqdm(data):
             if "junit_version" not in d or "test_file_path" not in d:
                 d["junit_version"] = junit_version

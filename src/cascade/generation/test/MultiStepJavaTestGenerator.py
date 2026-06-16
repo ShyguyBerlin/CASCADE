@@ -6,13 +6,14 @@ import subprocess
 #import tiktoken
 
 from cascade.generation.Generator import Generator
-from cascade.generation.executor.OpenAICaller import OpenAICaller
+from cascade.diagnostics.PipelineTools import PipelineTools
 from cascade.utils.JavaUtils import build_context, check_syntax, repair_helper_functions, get_repair_helper_functions, \
     build_signature
 
 
 class MultiStepJavaTestGenerator(Generator):
     def __init__(self,
+                 pipeline=None,
                  model="gpt-4o-mini-2024-07-18",
                  max_attempts=1, delay=3,
                  max_tokens=16000,
@@ -23,12 +24,8 @@ class MultiStepJavaTestGenerator(Generator):
                  ):
 
         super().__init__()
-        self.prompt_executor = OpenAICaller(max_attempts=max_attempts, model=model,
-                                            max_tokens=max_tokens, temperature=temperature,
-                                            delay=delay, freq_penalty=freq_penalty, dummy=dummy,
-                                            api_key=api_key, base_url=base_url)
-
-        self.model = model
+        self.pipeline : PipelineTools=pipeline
+        self.log=self.pipeline.log.set_key("MSJavaTestGenerator")
         self.max_prompt_tokens = max_prompt_tokens
 
         self.is_junit3 = False
@@ -75,11 +72,12 @@ class MultiStepJavaTestGenerator(Generator):
         return promptlist
 
     def generate(self, context, input_path, output_path, response_step2=None):
+        self.pipeline.time.start("MultiStep Java Test Generator")
         results_path = os.path.join(output_path, "results.txt")
         errors_path = os.path.join(output_path, "errors.txt")
 
         chat_history = []
-        print("      Test generation Phase 1")
+        self.log.log_info("      Test generation Phase 1")
         # first given the method documentation and signature, we want to extract possible testcases or properties.
         prompt_step1 = [
             {"role": "system",
@@ -89,14 +87,15 @@ class MultiStepJavaTestGenerator(Generator):
         ]
 
         chat_history.append(copy.deepcopy(prompt_step1))
-        response_step1a = self.prompt_executor.execute(prompt_step1).model_dump()
+        response_step1a = self.pipeline.llm.execute(prompt_step1).model_dump()
         chat_history.append(response_step1a)
 
         if not response_step1a["choices"]:
-            print("      error during generation")
+            self.log.log_error("      error during generation")
             with open(errors_path, "a") as f:
                 f.write(f"error during test generation of {context["signature"]["name"]}")
 
+            self.pipeline.time.stop("MultiStep Java Test Generator")
             return "", chat_history
 
         prompt_step1.append(response_step1a["choices"][0]["message"])
@@ -115,7 +114,7 @@ class MultiStepJavaTestGenerator(Generator):
 
         prompt_step1.append(prompt_json_list)
 
-        response_step1b = self.prompt_executor.execute(prompt_step1).model_dump()
+        response_step1b = self.pipeline.llm.execute(prompt_step1).model_dump()
         response_text = response_step1b["choices"][0]["message"]["content"]
 
 
@@ -127,22 +126,23 @@ class MultiStepJavaTestGenerator(Generator):
         if not test_list:
             with open(errors_path, "a") as f:
                 f.write("error during test extraction from json")
+            self.pipeline.time.stop("MultiStep Java Test Generator")
             return "", chat_history
 
 
         context["test_list"] = test_list
 
-        print("      Test generation Phase 2")
+        self.log.log_info("      Test generation Phase 2")
         # now we have a list of testable properties, we want to generate a testclass filled with these.
         prompt_step2 = self.build_prompt(context)
 
-        response_step2a = self.prompt_executor.execute(prompt_step2).model_dump()
+        response_step2a = self.pipeline.llm.execute(prompt_step2).model_dump()
 
         prompt_step2.append(response_step2a["choices"][0]["message"])
 
         prompt_step2.append({"role": "user", "content": "Make sure that this class compiles without errors. Check if everything that is used is imported correctly and all exceptions are properly caught. Reply with the correct class only"})
 
-        response_step2b = self.prompt_executor.execute(prompt_step2).model_dump()
+        response_step2b = self.pipeline.llm.execute(prompt_step2).model_dump()
         chat_history.append(copy.deepcopy(prompt_step2))
         chat_history.append(response_step2b)
 
@@ -158,7 +158,8 @@ class MultiStepJavaTestGenerator(Generator):
                 f.write("Negative, No syntactically correct test class generated")
             with open(errors_path, "w") as f:
                 f.write(f"No syntactically correct test class generated \nResponse text:\n{response_text}")
-        print("      Test generation finished")
+        self.log.log_info("      Test generation finished")
+        self.pipeline.time.stop("MultiStep Java Test Generator")
         return new_tests, chat_history
 
 
@@ -205,7 +206,7 @@ class MultiStepJavaTestGenerator(Generator):
                     new_tests = code_block
                     break
         else:
-            print("      no code block could be extracted for generated Tests")
+            self.log.log_error("      no code block could be extracted for generated Tests")
             errors_path = os.path.join(output_path, "errors.txt")
             with open(errors_path, "a") as f:
                 f.write(f"Could not get tests from response:\n{response}")
@@ -215,6 +216,7 @@ class MultiStepJavaTestGenerator(Generator):
 
 
     def repair(self, context, input_path, output_path, errors, key):
+        self.pipeline.time.start("MultiStep Java Test Repair")
         response_history = []
         tools = get_repair_helper_functions()
         #tools = None
@@ -233,7 +235,7 @@ class MultiStepJavaTestGenerator(Generator):
         promptlist.append({"role": "system", "content": system_prompt})
         promptlist.append({"role": "user", "content": prompt})
 
-        res = self.prompt_executor.execute(promptlist, tools=tools).model_dump()
+        res = self.pipeline.llm.execute(promptlist, tools=tools).model_dump()
         response_history.append(copy.deepcopy(promptlist))
         response_history.append(res)
         # we allow three tool usages before we force a generation
@@ -253,9 +255,9 @@ class MultiStepJavaTestGenerator(Generator):
                     promptlist.append({"role": "tool", "content": json.dumps(results), "tool_call_id": tool_call["id"]})
 
                 if i < steps - 1:
-                    res = self.prompt_executor.execute(promptlist, tools=tools).model_dump()
+                    res = self.pipeline.llm.execute(promptlist, tools=tools).model_dump()
                 else:
-                    res = self.prompt_executor.execute(promptlist).model_dump()
+                    res = self.pipeline.llm.execute(promptlist).model_dump()
                 response_history.append(copy.deepcopy(promptlist))
                 response_history.append(res)
 
@@ -266,6 +268,7 @@ class MultiStepJavaTestGenerator(Generator):
 
         response_history.append(copy.deepcopy(promptlist))
         response_history.append(res)
+        self.pipeline.time.stop("MultiStep Java Test Repair")
         return new_tests, response_history
 
 
@@ -273,7 +276,7 @@ class MultiStepJavaTestGenerator(Generator):
         # extract json list from response
         def log_json_error(error_message):
             """Logs the JSON error to results.txt and errors.txt."""
-            print(error_message)
+            self.log.log_error(error_message)
             results_path = os.path.join(output_path, "results.txt")
             errors_path = os.path.join(output_path, "errors.txt")
             with open(results_path, "w") as f:
@@ -313,5 +316,5 @@ class MultiStepJavaTestGenerator(Generator):
             return []
 
         test_names = [test['test_name'] for test in clean_test_list]
-        print(f"      Got {len(clean_test_list)} potential tests:\n        {'\n        '.join(test_names)}")
+        self.log.log_info(f"      Got {len(clean_test_list)} potential tests:\n        {'\n        '.join(test_names)}")
         return  clean_test_list

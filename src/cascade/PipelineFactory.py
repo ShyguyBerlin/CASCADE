@@ -4,6 +4,7 @@ from cascade.Pipeline import Pipeline
 from cascade.generation.Generation import Generation
 from cascade.filters.Filter import Filter
 from cascade.utils import Utils
+from cascade.diagnostics.PipelineTools import PipelineTools
 
 import sys
 
@@ -54,7 +55,7 @@ class PipelineFactory:
             print(f"Error instantiating class '{class_name}': {e}")
             sys.exit(-1)
 
-    def build(self, pipeline_path, kwargs=None):
+    def build(self, pipeline_path, kwargs=None, output_path=""):
         """
         Builds a pipeline from a config file and optional keyword arguments.
         The config file is a JSON file containing the specific modules that should be used for each pipeline component.
@@ -63,16 +64,75 @@ class PipelineFactory:
         :param pipeline_path: The path to the config file.
         """
         if not kwargs:
-            kwargs = {"module_path": None, "Extraction": {}, "CodeGenerator": {}, "TestGenerator": {},
-                      "DocGenerator": {}, "Analysis": {}, "Executor": {}, "FilterFunctions": []}
+            kwargs = {}
+        kwargs__ = {"module_path": None, "Extraction": {}, "CodeGenerator": {}, "TestGenerator": {},
+                      "DocGenerator": {}, "Analysis": {}, "Executor": {}, "FilterFunctions": [],
+                      "Logging": {"output_path": output_path}, "LLMCaller":{},"TimeMeasuring":{}}
 
-        config = Utils.load_json_from_path(pipeline_path)
+        for i in kwargs__:
+            if not i in kwargs:
+                kwargs[i]=kwargs__[i]
+
+        config : list | dict = Utils.load_json_from_path(pipeline_path)
         if not config:
             raise Exception("No config file found at:" , pipeline_path)
 
         if kwargs["module_path"]:
             sys.path.append(os.path.abspath(str(kwargs["module_path"])))
         sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cascade")))
+
+        pipeline_tools = PipelineTools()
+        kwargs.update({"LLMCaller":{"pipeline":pipeline_tools}})
+
+        # Init logging
+        if "Logging" in config:
+            name = config["Logging"]["name"]
+            kwargs_ = config["Logging"]["kwargs"]
+        else:
+            name = "FileLogging"
+            kwargs_ = {}
+        path = "cascade.diagnostics.logging." + name
+        kwargs_.update(kwargs["Logging"])
+        logging = self.load_class(name, path, [], kwargs_)
+
+        pipeline_tools.set_log(logging)
+
+        # Init time
+        if "TimeMeasuring" in config:
+            name = config["TimeMeasuring"]["name"]
+            kwargs_ = config["TimeMeasuring"]["kwargs"]
+        else:
+            name = "PhaseTimeMeasuring"
+            kwargs_ = {}
+        path = "cascade.diagnostics.time." + name
+        kwargs_.update(kwargs["TimeMeasuring"])
+        kwargs_["log"]=logging
+        time = self.load_class(name, path, [], kwargs_)
+
+        pipeline_tools.set_time(time)
+
+        # Init time
+        if "LLMCaller" in config:
+            name = config["LLMCaller"]["name"]
+            kwargs_ = config["LLMCaller"]["kwargs"]
+        else:
+            name = "OpenAICaller"
+            kwargs_ = {}
+        path = "cascade.diagnostics.model_executor." + name
+        kwargs_.update(kwargs["LLMCaller"])
+        llm = self.load_class(name, path, [], kwargs_)
+
+        pipeline_tools.set_llm(llm)
+
+        # Pipeline tools are complete
+
+        kwargs.update({
+            "CodeGenerator": {"pipeline": pipeline_tools},
+            "TestGenerator": {"pipeline": pipeline_tools},
+            "DocGenerator":  {"pipeline": pipeline_tools},
+            "Analysis":      {"pipeline": pipeline_tools},
+            "Executor":      {"pipeline": pipeline_tools}
+        })
 
         name = config["Extraction"]["name"]
         path = "cascade.extraction." + name
@@ -121,7 +181,7 @@ class PipelineFactory:
         kwargs_.update(kwargs["Analysis"])
         analysis = self.load_class(name, path, [generation, Execution(analysis_executor)], kwargs_)
 
-        pipeline = Pipeline(extraction, filter_, analysis, config)
+        pipeline = Pipeline(extraction, filter_, analysis, pipeline_tools, config)
 
         return pipeline
 

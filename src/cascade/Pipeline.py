@@ -4,10 +4,10 @@ from cascade.extraction.Extraction import Extraction
 from cascade.filters.Filter import Filter
 from cascade.analysis.Analysis import Analysis
 from cascade.utils.Utils import load_json_from_path
-
+from cascade.diagnostics.PipelineTools import PipelineTools
 
 class Pipeline():
-    def __init__(self, extraction: Extraction, _filter: Filter, analysis: Analysis, setup_config: dict):
+    def __init__(self, extraction: Extraction, _filter: Filter, analysis: Analysis, tools: PipelineTools, setup_config: dict):
         """
         The main pipeline object. Calls "extract" and "analyse" in an appropriate manner.
         is usually build through Pipeline_Factory
@@ -20,6 +20,8 @@ class Pipeline():
         self._filter = _filter
         self.analysis = analysis
         self.setup_config = setup_config
+        self.tools = tools
+        self.log=self.tools.log.set_key("Pipeline")
 
     def execute(self, input_path, output_path) -> None:
         """
@@ -30,16 +32,16 @@ class Pipeline():
         intermediate saving, which type of analyses should be done and the generator that the analysis uses.
         """
         if not os.path.exists(os.path.join(output_path, "analyzed.json")):
-            print("Extraction started")
+            self.log.log_info("Extraction started")
             data = self.extraction.extract(input_path, output_path)
-            print("Extraction finished. Extracted: ", len(data))
+            self.log.log_info("Extraction finished. Extracted: ", len(data))
 
-            print("Filtering started")
+            self.log.log_info("Filtering started")
             filtered_data = self._filter.filter_all(data)
-            print("Filtering finished. Remaining: ", len(filtered_data))
+            self.log.log_info("Filtering finished. Remaining: ", len(filtered_data))
 
         else:
-            print("Found analyzed results, will skip extraction and filtering")
+            self.log.log_info("Found analyzed results, will skip extraction and filtering")
             # generated artifacts for the same dataset can be saved to avoid repeated generation of code and tests.
             temp_data = load_json_from_path(os.path.join(output_path, "analyzed.json"))
             filtered_data = []
@@ -47,10 +49,11 @@ class Pipeline():
                 filtered_data = temp_data
 
         if not filtered_data:
-            print("No data to analyze")
+            self.log.log_warn("No data to analyze")
             return
 
-        print("Analysis started")
+        self.log.log_info("Analysis started")
         self.analysis.analyze(filtered_data, input_path, output_path)
-        print("Analysis finished")
+        self.log.log_info("Analysis finished")
+        self.tools.time.log_summary()
 

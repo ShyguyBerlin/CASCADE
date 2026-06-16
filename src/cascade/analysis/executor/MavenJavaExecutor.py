@@ -1,5 +1,6 @@
 from cascade.analysis.executor.JavaExecutor import JavaExecutor
 from cascade.analysis.executor.builders.MavenBuilder import MavenBuilder
+from cascade.diagnostics.PipelineTools import PipelineTools
 
 import uuid
 
@@ -7,7 +8,7 @@ class MavenJavaExecutor(JavaExecutor):
     """
     The specific JavaExecutor for Maven projects
     """
-    def __init__(self, debug=False, maven_args="", set_up_maven_command="test", set_up_maven_args="", image="maven"):
+    def __init__(self, pipeline:PipelineTools=None, debug=False, maven_args="", set_up_maven_command="test", set_up_maven_args="", image="maven"):
         """
         The constructor for the MavenJavaExecutor.
 
@@ -18,6 +19,8 @@ class MavenJavaExecutor(JavaExecutor):
         :param image: The base image to use for the docker container
         """
 
+        self.pipeline=pipeline
+        self.log=pipeline.log.set_key("MavenJavaExecutor")
         # generate a unique ID to give the new image a unique name. This is necessary to avoid conflicts with other images especially when multithreading
         image_name_id = str(uuid.uuid4())
 

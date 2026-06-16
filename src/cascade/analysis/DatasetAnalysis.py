@@ -13,13 +13,15 @@ from cascade.utils.JavaUtils import build_signature
 
 from cascade.generation.Generation import Generation
 from cascade.utils.Utils import load_json_from_path, save_dicts_list_to_json
+from cascade.diagnostics.PipelineTools import PipelineTools
 
 from cascade.utils.DockerizedWrapper import DockerizedWrapper
 import xml.etree.ElementTree as ET
 
 class DatasetAnalysis(Analysis):
-    def __init__(self, generator: Generation, executor: Execution, regenerate=False, reexecute=False, image="maven" , debug=0, step_size=1, max_repair_tries=3):
+    def __init__(self, generator: Generation, executor: Execution, pipeline=None, regenerate=False, reexecute=False, image="maven" , debug=0, step_size=1, max_repair_tries=3):
         super().__init__(generator, executor)
+        self.pipeline:PipelineTools=pipeline
         self.reexecute = reexecute or regenerate
         self.step_size = step_size
         self.regenerate = regenerate
@@ -42,7 +44,8 @@ class DatasetAnalysis(Analysis):
             with open(os.path.join(output_path , "log.txt"), "a") as f:
                 f.write(header + "/n")
                 f.write(message)
-
+        
+        self.pipeline.time.start("Dataset Analysis")
         output_string = ""
         ana_path = os.path.join(output_path, "analyzed.json")
 
@@ -55,6 +58,7 @@ class DatasetAnalysis(Analysis):
             f.write("NoInco; error; ; ; ; ; ; ")
 
         if d is None:
+            self.pipeline.time.stop("Dataset Analysis")
             return
 
 
@@ -77,6 +81,7 @@ class DatasetAnalysis(Analysis):
 
                 if new_tests == "":
                     log("GENERATION: no test could be generated:", str(chat_history))
+                    self.pipeline.time.stop("Dataset Analysis")
                     return
 
             else:
@@ -297,6 +302,7 @@ class DatasetAnalysis(Analysis):
 
 
         self.executor.tear_down(data)
+        self.pipeline.time.stop("Dataset Analysis")
 
     def evaluate(self, res):
         if res[0] == [] and res[1] == [] and res[2] == []:

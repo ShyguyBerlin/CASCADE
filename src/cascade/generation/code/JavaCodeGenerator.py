@@ -3,6 +3,7 @@ import re
 from cascade.generation.Generator import Generator
 from cascade.generation.executor.OpenAICaller import OpenAICaller
 from cascade.utils.JavaUtils import build_context, build_signature, repair_helper_functions, get_repair_helper_functions
+from cascade.diagnostics.PipelineTools import PipelineTools
 
 import os
 import copy
@@ -11,6 +12,7 @@ import json
 
 class JavaCodeGenerator(Generator):
     def __init__(self,
+                 pipeline=None,
                  max_attempts=1,
                  max_tokens=16000,
                  temperature=0,
@@ -22,12 +24,8 @@ class JavaCodeGenerator(Generator):
                  base_url=None, api_key=None
                  ):
         super().__init__()
-        self.model = model
-        self.max_prompt_tokens = max_prompt_tokens
-        self.prompt_executor = OpenAICaller(max_attempts=max_attempts, model=model,
-                                            max_tokens=max_tokens, temperature=temperature,
-                                            delay=delay, freq_penalty=freq_penalty, dummy=dummy,
-                                            api_key=api_key, base_url=base_url)
+        self.pipeline:PipelineTools=pipeline
+
 
 
     def build_prompt(self, context):
@@ -74,12 +72,13 @@ class JavaCodeGenerator(Generator):
 
 
     def generate(self, context, input_path, output_path):
+        self.pipeline.time.start("Java Code Generation")
         prompt = self.build_prompt(context)
 
         if not prompt:
             return "", None
 
-        response = self.prompt_executor.execute(prompt).model_dump()
+        response = self.pipeline.llm.execute(prompt).model_dump()
 
         response = {"prompt": prompt, "response": response}
 
@@ -87,6 +86,7 @@ class JavaCodeGenerator(Generator):
 
         new_code = self.extract_code(new_code, context, response["response"], output_path)
 
+        self.pipeline.time.stop("Java Code Generation")
         return new_code , response
 
 
@@ -127,6 +127,7 @@ class JavaCodeGenerator(Generator):
 
 
     def repair(self, context, input_path, output_path, errors, key):
+        self.pipeline.time.start("Java Code Repair")
         tools = get_repair_helper_functions()
 
         system_prompt = ("You are an Expert Java developer. You will Fix provided compilation errors in provided code without changing its functionality. "
@@ -142,7 +143,7 @@ class JavaCodeGenerator(Generator):
         promptlist.append({"role": "system", "content": system_prompt})
         promptlist.append({"role": "user", "content": prompt})
 
-        res = self.prompt_executor.execute(promptlist, tools=tools).model_dump()
+        res = self.pipeline.llm.execute(promptlist, tools=tools).model_dump()
 
         steps = 3
         for i in range(3):
@@ -160,9 +161,9 @@ class JavaCodeGenerator(Generator):
                     promptlist.append({"role": "tool", "content": json.dumps(results), "tool_call_id": tool_call["id"]})
 
                 if i < steps - 1:
-                    res = self.prompt_executor.execute(promptlist, tools=tools).model_dump()
+                    res = self.pipeline.llm.execute(promptlist, tools=tools).model_dump()
                 else:
-                    res = self.prompt_executor.execute(promptlist).model_dump()
+                    res = self.pipeline.llm.execute(promptlist).model_dump()
 
 
 
@@ -174,6 +175,7 @@ class JavaCodeGenerator(Generator):
 
         new_code = self.extract_code(new_code, context, res, output_path)
 
+        self.pipeline.time.stop("Java Code Repair")
         return new_code, repair_response
 
 
